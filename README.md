@@ -29,7 +29,7 @@ Students track deadlines in one place (an LMS, a notebook, memory) and their act
 
 2. **Configure environment**
    ```bash
-   cp .env.example .env
+   cp .env.local .env
    # fill in GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET
    ```
 
