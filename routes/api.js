@@ -3,7 +3,7 @@ const router = express.Router();
 
 const assignmentStore = require('../services/assignmentStore');
 const calendarService = require('../services/calendarService');
-const { scheduleAssignments } = require('../services/scheduler');
+const { scheduleAssignments, remainingHours } = require('../services/scheduler');
 const { hasStoredTokens } = require('../services/googleAuth');
 
 // --- Assignments CRUD ---
@@ -13,11 +13,14 @@ router.get('/assignments', (req, res) => {
 });
 
 router.post('/assignments', (req, res) => {
-  const { title, dueDate, hoursNeeded } = req.body;
+  const { title, dueDate, hoursNeeded, priority } = req.body;
   if (!title || !dueDate || !hoursNeeded) {
     return res.status(400).json({ error: 'title, dueDate, and hoursNeeded are required.' });
   }
-  const entry = assignmentStore.add({ title, dueDate, hoursNeeded });
+  if (priority && !['low', 'medium', 'high'].includes(priority)) {
+    return res.status(400).json({ error: "priority must be 'low', 'medium', or 'high'." });
+  }
+  const entry = assignmentStore.add({ title, dueDate, hoursNeeded, priority });
   res.status(201).json(entry);
 });
 
@@ -39,6 +42,11 @@ router.post('/sync', async (req, res) => {
       return res.json({ scheduled: [], warnings: [], message: 'No assignments to schedule.' });
     }
 
+    const stillPending = assignments.some((a) => remainingHours(a) > 0);
+    if (!stillPending) {
+      return res.json({ scheduled: [], warnings: [], message: 'Everything is already fully scheduled from a previous sync.' });
+    }
+
     const now = new Date();
     const latestDue = assignments.reduce((max, a) => (a.dueDate > max ? a.dueDate : max), now);
 
@@ -50,6 +58,7 @@ router.post('/sync', async (req, res) => {
     // Write study blocks to the actual calendar
     const createdBlocks = [];
     for (const item of scheduled) {
+      let hoursCreated = 0;
       for (const block of item.blocks) {
         const created = await calendarService.createEvent({
           summary: `Study: ${item.assignment.title}`,
@@ -58,6 +67,10 @@ router.post('/sync', async (req, res) => {
           end: block.end,
         });
         createdBlocks.push({ assignmentId: item.assignment.id, eventId: created.id, start: block.start, end: block.end });
+        hoursCreated += (block.end - block.start) / (60 * 60 * 1000);
+      }
+      if (hoursCreated > 0) {
+        assignmentStore.addScheduledHours(item.assignment.id, hoursCreated);
       }
     }
 
@@ -65,6 +78,8 @@ router.post('/sync', async (req, res) => {
       scheduled: scheduled.map((s) => ({
         assignment: s.assignment,
         blocks: s.blocks,
+        urgencyScore: s.urgencyScore,
+        remainingHours: s.remainingHours,
       })),
       warnings,
       createdBlocks,
