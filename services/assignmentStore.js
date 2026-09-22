@@ -14,16 +14,23 @@ function saveRaw(list) {
 }
 
 function getAll() {
-  return loadRaw().map((a) => ({ ...a, dueDate: new Date(a.dueDate) }));
+  return loadRaw().map((a) => ({
+    ...a,
+    dueDate: new Date(a.dueDate),
+    priority: a.priority || 'medium',
+    hoursScheduled: a.hoursScheduled || 0,
+  }));
 }
 
-function add({ title, dueDate, hoursNeeded }) {
+function add({ title, dueDate, hoursNeeded, priority }) {
   const list = loadRaw();
   const entry = {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     title,
     dueDate: new Date(dueDate).toISOString(),
     hoursNeeded: Number(hoursNeeded),
+    priority: priority || 'medium', // 'low' | 'medium' | 'high'
+    hoursScheduled: 0, // hours already placed on the calendar in a previous sync
   };
   list.push(entry);
   saveRaw(list);
@@ -35,4 +42,17 @@ function remove(id) {
   saveRaw(list);
 }
 
-module.exports = { getAll, add, remove };
+/**
+ * Record additional hours scheduled for this assignment, so a repeated sync
+ * only allocates the remaining, not-yet-scheduled portion of the work.
+ */
+function addScheduledHours(id, hours) {
+  const list = loadRaw();
+  const entry = list.find((a) => a.id === id);
+  if (entry) {
+    entry.hoursScheduled = (entry.hoursScheduled || 0) + hours;
+    saveRaw(list);
+  }
+}
+
+module.exports = { getAll, add, remove, addScheduledHours };
