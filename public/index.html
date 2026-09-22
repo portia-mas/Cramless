@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cramless</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --text: #e8e9ec;
+    --muted: #8b8f98;
+    --accent: #f2c94c;
+    --danger: #e5534b;
+    --ok: #4caf7d;
+    --border: #262933;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    padding: 28px 24px 8px;
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 26px;
+    letter-spacing: -0.5px;
+  }
+  header p {
+    color: var(--muted);
+    margin: 6px 0 0;
+    font-size: 14px;
+  }
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 16px 24px 60px;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .panel h2 {
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+    margin: 0 0 14px;
+  }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  input {
+    background: #0f1115;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+  }
+  input[type="text"] { flex: 2; min-width: 160px; }
+  input[type="datetime-local"] { flex: 1; min-width: 180px; }
+  input[type="number"] { width: 90px; }
+  select {
+    background: #0f1115;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+  }
+  button {
+    background: var(--accent);
+    color: #14151a;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  button.secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li.assignment {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+  li.assignment:last-child { border-bottom: none; }
+  .meta { color: var(--muted); font-size: 12px; }
+  .status-pill {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .status-ok { background: rgba(76,175,125,0.15); color: var(--ok); }
+  .status-warn { background: rgba(229,83,75,0.15); color: var(--danger); }
+  .remove-btn { color: var(--danger); background: none; border: none; cursor: pointer; font-size: 13px; }
+  #syncResult { font-size: 14px; line-height: 1.5; }
+  .block-line { color: var(--muted); font-size: 13px; margin-left: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Cramless</h1>
+  <p>Syncs your assignment deadlines with Google Calendar, finds real free time, and schedules study blocks before you run out of runway.</p>
+</header>
+
+<main>
+  <div class="panel">
+    <h2>Google Calendar</h2>
+    <div id="connectionStatus" class="row">Checking connection…</div>
+  </div>
+
+  <div class="panel">
+    <h2>Add an assignment</h2>
+    <div class="row">
+      <input type="text" id="title" placeholder="Assignment title" />
+      <input type="datetime-local" id="dueDate" />
+      <input type="number" id="hoursNeeded" placeholder="Hours" min="0.5" step="0.5" />
+      <select id="priority">
+        <option value="low">Low priority</option>
+        <option value="medium" selected>Medium priority</option>
+        <option value="high">High priority</option>
+      </select>
+      <button id="addBtn">Add</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Your assignments</h2>
+    <ul id="assignmentList"></ul>
+  </div>
+
+  <div class="panel">
+    <h2>Sync</h2>
+    <button id="syncBtn">Find free time &amp; schedule study blocks</button>
+    <div id="syncResult" style="margin-top:14px;"></div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+async function checkConnection() {
+  const res = await fetch('/auth/status');
+  const { connected } = await res.json();
+  const el = $('connectionStatus');
+  if (connected) {
+    el.innerHTML = '<span class="status-pill status-ok">Connected</span>';
+  } else {
+    el.innerHTML = '<a href="/auth/google"><button>Connect Google Calendar</button></a>';
+  }
+  return connected;
+}
+
+async function loadAssignments() {
+  const res = await fetch('/api/assignments');
+  const assignments = await res.json();
+  const list = $('assignmentList');
+  list.innerHTML = '';
+  if (assignments.length === 0) {
+    list.innerHTML = '<li class="assignment"><span class="meta">No assignments yet.</span></li>';
+    return;
+  }
+  assignments.forEach((a) => {
+    const li = document.createElement('li');
+    li.className = 'assignment';
+    const due = new Date(a.dueDate);
+    li.innerHTML = `
+      <div>
+        <strong>${a.title}</strong>
+        <div class="meta">Due ${due.toLocaleString()} · ${a.hoursNeeded}h needed · ${a.priority} priority${a.hoursScheduled ? ` · ${a.hoursScheduled}h already scheduled` : ''}</div>
+      </div>
+      <button class="remove-btn" data-id="${a.id}">Remove</button>
+    `;
+    list.appendChild(li);
+  });
+
+  list.querySelectorAll('.remove-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await fetch(`/api/assignments/${btn.dataset.id}`, { method: 'DELETE' });
+      loadAssignments();
+    });
+  });
+}
+
+$('addBtn').addEventListener('click', async () => {
+  const title = $('title').value.trim();
+  const dueDate = $('dueDate').value;
+  const hoursNeeded = $('hoursNeeded').value;
+  const priority = $('priority').value;
+  if (!title || !dueDate || !hoursNeeded) {
+    alert('Fill in all fields.');
+    return;
+  }
+  await fetch('/api/assignments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, dueDate, hoursNeeded, priority }),
+  });
+  $('title').value = '';
+  $('dueDate').value = '';
+  $('hoursNeeded').value = '';
+  $('priority').value = 'medium';
+  loadAssignments();
+});
+
+$('syncBtn').addEventListener('click', async () => {
+  const btn = $('syncBtn');
+  const resultEl = $('syncResult');
+  btn.disabled = true;
+  resultEl.textContent = 'Syncing with your calendar…';
+
+  try {
+    const res = await fetch('/api/sync', { method: 'POST' });
+    const data = await res.json();
+
+    if (!res.ok) {
+      resultEl.innerHTML = `<span class="status-pill status-warn">Error</span> ${data.error}`;
+      return;
+    }
+
+    if (data.message) {
+      resultEl.textContent = data.message;
+      return;
+    }
+
+    let html = '';
+    data.scheduled.forEach((s) => {
+      const warned = data.warnings.find((w) => w.assignment.id === s.assignment.id);
+      html += `<div style="margin-bottom:10px;">
+        <strong>${s.assignment.title}</strong>
+        <span class="meta">urgency: ${s.urgencyScore}</span>
+        ${warned ? `<span class="status-pill status-warn">Short by ${warned.hoursShort}h</span>` : '<span class="status-pill status-ok">Fully scheduled</span>'}
+      `;
+      s.blocks.forEach((b) => {
+        const start = new Date(b.start);
+        const end = new Date(b.end);
+        html += `<div class="block-line">${start.toLocaleString()} → ${end.toLocaleTimeString()}</div>`;
+      });
+      html += `</div>`;
+    });
+
+    resultEl.innerHTML = html || 'Nothing to schedule.';
+  } catch (err) {
+    resultEl.innerHTML = `<span class="status-pill status-warn">Error</span> ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+(async () => {
+  await checkConnection();
+  await loadAssignments();
+})();
+</script>
+</body>
+</html>

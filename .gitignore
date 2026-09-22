@@ -1,0 +1,6 @@
+node_modules/
+.env
+data/tokens.json
+data/assignments.json
+*.log
+.DS_Store
