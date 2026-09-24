@@ -91,8 +91,23 @@ async function createEvent({ summary, description, start, end }) {
   return res.data;
 }
 
+/**
+ * Delete a calendar event by ID. Used for demo reset - swallows "not found"
+ * errors since the event may have already been deleted manually by the user.
+ */
+async function deleteEvent(eventId) {
+  const auth = await getAuthorizedClient();
+  const calendar = google.calendar({ version: 'v3', auth });
+  try {
+    await calendar.events.delete({ calendarId: 'primary', eventId });
+  } catch (err) {
+    if (err.code !== 404 && err.code !== 410) throw err; // ignore "already gone"
+  }
+}
+
 module.exports = {
   getBusyEvents,
   computeFreeSlots,
   createEvent,
+  deleteEvent,
 };

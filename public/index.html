@@ -115,6 +115,17 @@
   .remove-btn { color: var(--danger); background: none; border: none; cursor: pointer; font-size: 13px; }
   #syncResult { font-size: 14px; line-height: 1.5; }
   .block-line { color: var(--muted); font-size: 13px; margin-left: 12px; }
+  .stat-box {
+    background: #0f1115;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    flex: 1;
+    min-width: 110px;
+    text-align: center;
+  }
+  .stat-box .value { font-size: 22px; font-weight: 700; color: var(--accent); }
+  .stat-box .label { font-size: 12px; color: var(--muted); margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -127,6 +138,11 @@
   <div class="panel">
     <h2>Google Calendar</h2>
     <div id="connectionStatus" class="row">Checking connection…</div>
+  </div>
+
+  <div class="panel" id="summaryPanel" style="display:none;">
+    <h2>Overview</h2>
+    <div id="summaryStats" class="row"></div>
   </div>
 
   <div class="panel">
@@ -151,7 +167,10 @@
 
   <div class="panel">
     <h2>Sync</h2>
-    <button id="syncBtn">Find free time &amp; schedule study blocks</button>
+    <div class="row">
+      <button id="syncBtn">Find free time &amp; schedule study blocks</button>
+      <button id="resetBtn" class="secondary">Reset demo</button>
+    </div>
     <div id="syncResult" style="margin-top:14px;"></div>
   </div>
 </main>
@@ -171,11 +190,33 @@ async function checkConnection() {
   return connected;
 }
 
+function renderSummary(assignments) {
+  const panel = $('summaryPanel');
+  if (assignments.length === 0) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+
+  const totalAssignments = assignments.length;
+  const totalHoursNeeded = assignments.reduce((sum, a) => sum + a.hoursNeeded, 0);
+  const totalHoursScheduled = assignments.reduce((sum, a) => sum + (a.hoursScheduled || 0), 0);
+  const totalRemaining = Math.max(totalHoursNeeded - totalHoursScheduled, 0);
+
+  $('summaryStats').innerHTML = `
+    <div class="stat-box"><div class="value">${totalAssignments}</div><div class="label">Assignments</div></div>
+    <div class="stat-box"><div class="value">${totalHoursNeeded}h</div><div class="label">Total hours needed</div></div>
+    <div class="stat-box"><div class="value">${totalHoursScheduled}h</div><div class="label">Already scheduled</div></div>
+    <div class="stat-box"><div class="value">${totalRemaining}h</div><div class="label">Remaining</div></div>
+  `;
+}
+
 async function loadAssignments() {
   const res = await fetch('/api/assignments');
   const assignments = await res.json();
   const list = $('assignmentList');
   list.innerHTML = '';
+  renderSummary(assignments);
   if (assignments.length === 0) {
     list.innerHTML = '<li class="assignment"><span class="meta">No assignments yet.</span></li>';
     return;
@@ -260,6 +301,27 @@ $('syncBtn').addEventListener('click', async () => {
     });
 
     resultEl.innerHTML = html || 'Nothing to schedule.';
+  } catch (err) {
+    resultEl.innerHTML = `<span class="status-pill status-warn">Error</span> ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('resetBtn').addEventListener('click', async () => {
+  if (!confirm('This will delete all assignments and remove any study blocks Cramless created on your calendar. Continue?')) {
+    return;
+  }
+  const btn = $('resetBtn');
+  const resultEl = $('syncResult');
+  btn.disabled = true;
+  resultEl.textContent = 'Resetting…';
+
+  try {
+    const res = await fetch('/api/reset', { method: 'POST' });
+    const data = await res.json();
+    resultEl.textContent = data.message || 'Reset complete.';
+    loadAssignments();
   } catch (err) {
     resultEl.innerHTML = `<span class="status-pill status-warn">Error</span> ${err.message}`;
   } finally {

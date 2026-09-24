@@ -53,12 +53,13 @@ router.post('/sync', async (req, res) => {
     const busyEvents = await calendarService.getBusyEvents(now, latestDue);
     const freeSlots = calendarService.computeFreeSlots(busyEvents, now, latestDue);
 
-    const { scheduled, warnings } = scheduleAssignments(assignments, freeSlots);
+    const { scheduled, warnings } = scheduleAssignments(assignments, freeSlots, now);
 
     // Write study blocks to the actual calendar
     const createdBlocks = [];
     for (const item of scheduled) {
       let hoursCreated = 0;
+      const eventIds = [];
       for (const block of item.blocks) {
         const created = await calendarService.createEvent({
           summary: `Study: ${item.assignment.title}`,
@@ -67,10 +68,11 @@ router.post('/sync', async (req, res) => {
           end: block.end,
         });
         createdBlocks.push({ assignmentId: item.assignment.id, eventId: created.id, start: block.start, end: block.end });
+        eventIds.push(created.id);
         hoursCreated += (block.end - block.start) / (60 * 60 * 1000);
       }
       if (hoursCreated > 0) {
-        assignmentStore.addScheduledHours(item.assignment.id, hoursCreated);
+        assignmentStore.addScheduledHours(item.assignment.id, hoursCreated, eventIds);
       }
     }
 
@@ -86,6 +88,25 @@ router.post('/sync', async (req, res) => {
     });
   } catch (err) {
     console.error('Sync error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Demo reset: delete all created calendar events and clear assignments ---
+
+router.post('/reset', async (req, res) => {
+  try {
+    const eventIds = assignmentStore.clearAllAndReturnEventIds();
+
+    if (hasStoredTokens()) {
+      for (const eventId of eventIds) {
+        await calendarService.deleteEvent(eventId);
+      }
+    }
+
+    res.json({ message: `Reset complete. Removed ${eventIds.length} calendar event(s) and cleared all assignments.` });
+  } catch (err) {
+    console.error('Reset error:', err);
     res.status(500).json({ error: err.message });
   }
 });
